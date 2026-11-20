@@ -1,0 +1,40 @@
+Column/term definitions and meanings (for a single row in a vacuum):
+
+race_num: What number race that race was at that race course on that given day.
+
+race_grade: The grade of that race. The highest race grade is G1, followed by G2, G3, then OP. 
+
+video: Whether or not a video is available for that race. Nearly always None because of how it was coded into the HTML.
+
+fav: What number favorite that horse was for that race. A value of 1 means the horse was favored to win the race, a value of 2 means the second favorite, etc.
+
+jockey_weight: Measured in kilograms.
+
+odds: Interpreted as a multiplier for a given bet. For example, if the odds are listed as 4.3, then a successful bet of 100 Yen would return 430 Yen (the 100 Yen you bet + 330 Yen in profit).
+
+runners: How many horses ran in that race.
+
+bracket: What betting group the horse was in.
+
+post: What number stall in the starting gate the horse occupied.
+
+track: Lists the track type (T for Turf, D for Dirt) and the distance of the race (measured in meters).
+
+weather: Always None because of how it was coded into the HTML.
+
+going: A description of how saturated with moisture the track surface was for that race. Gd means Good, GS means Good to Soft, Sft means Soft, and Hvy means Heavy.
+
+time: How long it took the horse to finish the race.
+
+margin: If the value is positive, how many seconds behind first place the horse finished. If the value is negative, how many seconds ahead of second place the horse finished. Value of 0 means the margin was within 0.05 seconds.
+
+F3F-L3F: How long it took the horse that placed in first to run the first and last 600 meters of the race.
+
+L3F: How long it took the horse specified in the row to run the last 600 meters of the race. Empty if the horse specified in the row placed first.
+
+horse_weight: Measured in kilograms. The number in parentheses indicates the difference between the specified horse's weight in that race as compared to the last race it ran.
+
+winner_(runner_up): If the name is not surrounded by parentheses, it indicates the name of the horse that won the race. If the name is surrounded by parentheses, it indicates the horse that came in second (meaning the horse specified by the id placed first).
+
+prize: Measured in millions of Yen.
+
