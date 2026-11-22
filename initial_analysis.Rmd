@@ -1,0 +1,157 @@
+---
+title: "Initial Horse Racing Analysis"
+output: html_document
+date: "2026-11-22"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Data Loading
+
+Here we load the horse racing data retrieved from netkeiba.com
+
+```{r}
+library(readr)
+files <- list.files(path = "./KeibaFull", pattern = "\\.csv$", full.names = TRUE)
+print(files)
+```
+
+If we attempt to load all of the CSV files into a single data frame, the resulting data frame is too large and the R session crashes. We can instead use arrow to read only the specific columns and rows needed for calculation into memory without loading all of the data into RAM.
+
+```{r}
+library(arrow)
+library(dplyr)
+
+ds <- open_dataset("./KeibaFull", format = "csv")
+sch <- ds$schema
+for (nm in c("runners", "post", "final")) sch[[nm]] <- field(nm, utf8())
+sch[["bracket"]] <- field("bracket", float64())
+
+full_data <- open_dataset("./KeibaFull", format = "csv", schema = sch, skip = 1) %>%
+  mutate(race_year = year(date),
+         cohort = as.integer(substr(as.character(id), 1, 4)),
+         pos = as.integer(if_else(grepl("^[0-9]+$", final), final, NA_character_)))
+```
+
+Because horses born before 1985 or after 2014 are not in the data, only the race years in which every racing cohort is present (roughly 1998–2016) are complete.
+
+```{r}
+library(ggplot2)
+race_counts <- full_data %>%
+  count(race_year) %>%
+  arrange(race_year) %>%
+  collect()
+
+ggplot(race_counts, aes(x = race_year, y = n)) +
+  geom_col(fill = "steelblue") +
+  labs(title = "Recorded races by year", x = "Year", y = "Number of Races") +
+  theme_minimal()
+```
+
+## Most Wins per Year
+
+```{r}
+yearly_comparison <- full_data %>%
+  filter(pos == 1L) %>%
+  count(race_year, id, name = "wins") %>%
+  collect() %>%
+  group_by(race_year) %>%
+  slice_max(wins, n = 1, with_ties = TRUE) %>%
+  ungroup()
+yearly_comparison
+```
+
+## Win Share by Odds
+
+Odds of `0.0` mark missing values (mostly overseas races), so they are excluded, as are horses that did not start (`NR` or blank `final`).
+
+Arrow first counts starters and winners for each race year and exact odds value. That collapses \~4 million rows into \~130,000, small enough to bin in R. One-unit bins leave the high odds with very few horses per bin, so the bins get wider as the odds rise.
+
+```{r}
+odds_by_year <- full_data %>%
+  filter(odds > 0, !final %in% c("NR", "")) %>%
+  group_by(race_year, odds) %>%
+  summarise(n = n(), wins = sum(as.integer(coalesce(pos == 1L, FALSE)))) %>%
+  collect()
+
+odds_breaks <- c(1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10, 13, 16, 20, 25, 30, 40, 50, 70,
+                 100, 150, 200, 300, Inf)
+
+# Bins the odds, optionally within groups (e.g. era), and compares the actual win
+# share with the 1 / odds win chance implied by the payout.
+bin_odds <- function(df, ...) {
+  df %>%
+    mutate(odds_bin = cut(odds, odds_breaks, right = FALSE)) %>%
+    group_by(..., odds_bin) %>%
+    summarise(odds_mid = weighted.mean(odds, n), win_share = sum(wins) / sum(n),
+              n = sum(n), .groups = "drop") %>%
+    mutate(implied = 1 / odds_mid, ratio = win_share / implied)
+}
+
+odds_comparison <- bin_odds(odds_by_year)
+odds_comparison
+
+theme_keiba <- theme_minimal(base_size = 12) +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_line(colour = "#e1e0d9", linewidth = 0.3),
+        axis.text = element_text(colour = "#52514e"),
+        axis.title = element_text(colour = "#52514e"),
+        plot.title = element_text(colour = "#0b0b0b", face = "bold"),
+        plot.subtitle = element_text(colour = "#52514e"),
+        plot.caption = element_text(colour = "#898781"),
+        plot.title.position = "plot")
+```
+
+On log–log axes the 1 / odds reference is a straight line, so the gap between it and the actual win share stays readable from favourites down to 500-to-1 longshots.
+
+```{r, fig.width = 8, fig.height = 5}
+ggplot(odds_comparison, aes(odds_mid, win_share)) +
+  geom_function(fun = function(x) 1 / x, linetype = "dashed", colour = "#898781",
+                linewidth = 0.6) +
+  geom_line(colour = "#2a78d6", linewidth = 0.8) +
+  geom_point(colour = "#2a78d6", size = 2) +
+  annotate("text", x = 40, y = 1 / 40 * 1.6, label = "1 / odds (fair odds)",
+           colour = "#52514e", hjust = 0, size = 3.6) +
+  annotate("text", x = 6, y = 0.115 * 0.55, label = "Actual win share",
+           colour = "#2a78d6", hjust = 1, size = 3.6, fontface = "bold") +
+  scale_x_log10(breaks = c(1, 2, 5, 10, 20, 50, 100, 200, 500)) +
+  scale_y_log10(labels = scales::label_percent(accuracy = 0.1),
+                breaks = c(0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5)) +
+  labs(title = "Share of starters that won by win odds",
+       subtitle = "Both axes on a log scale",
+       x = "Win odds (log scale)", y = "Share of starters that won") +
+  theme_keiba
+```
+
+## Win Share by Odds Across Race Years
+
+Plotted on the same axes, the year-by-year curves lie almost on top of each other, so this plot shows the ratio of actual win share to the 1 / odds chance instead. A ratio of 100% would mean a horse wins exactly as often as its odds suggest. JRA pays out about 80% of win-bet stakes, so a ratio of roughly 75–80% means the odds were priced fairly once that takeout is included. Individual years have only a handful of longshot winners each, which makes single-year lines very noisy, so the complete race years (1998–2016) are grouped into three eras.
+
+```{r, fig.width = 8, fig.height = 5}
+eras <- c("1998–2003", "2004–2009", "2010–2016")
+odds_era_comparison <- odds_by_year %>%
+  filter(race_year %in% 1998:2016, odds < 500) %>%
+  mutate(era = cut(race_year, c(1998, 2004, 2010, 2017), right = FALSE, labels = eras)) %>%
+  bin_odds(era)
+era_labels <- odds_era_comparison %>% filter(odds_bin == "[300,Inf)")
+
+ggplot(odds_era_comparison, aes(odds_mid, ratio, colour = era)) +
+  geom_hline(yintercept = 1, linetype = "dashed", colour = "#898781", linewidth = 0.6) +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 1.8) +
+  geom_text(data = era_labels, aes(label = era), hjust = 0, nudge_x = 0.04,
+            size = 3.6, colour = "#52514e", show.legend = FALSE) +
+  annotate("text", x = 1, y = 1.03, label = "Fair odds (1 / odds)", colour = "#52514e",
+           hjust = 0, vjust = 0, size = 3.6) +
+  scale_x_log10(breaks = c(1, 2, 5, 10, 20, 50, 100, 200, 500),
+                expand = expansion(mult = c(0.02, 0.15))) +
+  scale_y_continuous(labels = scales::label_percent(), limits = c(0, 1.1),
+                     breaks = seq(0, 1, 0.25)) +
+  scale_colour_manual(values = c("#86b6ef", "#2a78d6", "#0d366b"), name = "Race years") +
+  labs(title = "Actual win share as a percentage of the 1 / odds win chance",
+       x = "Win odds (log scale)", y = "Actual vs. fair win chance") +
+  theme_keiba +
+  theme(legend.position = "top", legend.justification = "left")
+```
