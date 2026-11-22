@@ -102,6 +102,12 @@ theme_keiba <- theme_minimal(base_size = 12) +
         plot.subtitle = element_text(colour = "#52514e"),
         plot.caption = element_text(colour = "#898781"),
         plot.title.position = "plot")
+
+ggplot(odds_comparison, aes(x = odds_bin, y = n)) +
+  geom_col(fill = "steelblue") +
+  labs(title = "Counts of each Odds Bin", x = "Odds Bin", y = "Number of Horses") +
+  theme_minimal() +
+  scale_x_discrete(guide = guide_axis(angle = 45))
 ```
 
 On log–log axes the 1 / odds reference is a straight line, so the gap between it and the actual win share stays readable from favourites down to 500-to-1 longshots.
